@@ -1,0 +1,65 @@
+---
+title: "ingest"
+author: "JJayes"
+date: "14/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(scales)
+library(here)
+
+```
+
+### Ingest and clean
+
+```{r}
+df <- read.csv(here("data", "hcctad.txt")) %>% as_tibble() %>% janitor::clean_names()
+
+df <- df %>% 
+  mutate(across(.cols = -c(variable, year), .fns = parse_number))
+
+df %>% distinct(variable) %>% view()
+```
+
+### Reshape
+
+```{r}
+df <- df %>% 
+  pivot_longer(-c(variable, year), names_to = "country", values_to = "value")
+```
+
+### Skim
+
+```{r}
+df_skim <- df %>% pivot_wider(names_from = "variable") %>% skimr::skim()
+```
+
+### What variables are complete?
+
+```{r}
+df_skim %>% select(skim_variable, complete_rate) %>% 
+  mutate(skim_variable = fct_reorder(skim_variable, complete_rate)) %>% 
+  head(20) %>% 
+  ggplot(aes(complete_rate, skim_variable, fill = complete_rate)) +
+  geom_col() +
+  scale_x_continuous(labels = percent_format())
+```
+
+
+
+### Plotting
+
+```{r}
+df %>% 
+  filter(variable == "Population") %>% 
+  ggplot(aes(year, value, colour = country)) +
+  geom_point() +
+  geom_line()
+
+
+```
+
