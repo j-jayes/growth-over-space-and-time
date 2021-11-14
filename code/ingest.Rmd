@@ -139,6 +139,11 @@ df <- df %>%
 ```
 
 
+```{r}
+# df <- read_rds(here("data", "df.rds"))
+```
+
+
 ### Data descriptions
 
 ```{r}
@@ -443,7 +448,7 @@ df
 ### What about the correlations?
 
 ```{r}
-df %>% 
+df_mod <- df %>% 
   filter(variable %in% c("year",
                          "Real GDP",
                          "Population",
@@ -452,6 +457,7 @@ df %>%
                          "Primary Enrollment",
                          "Secondary Enrollment",
                          "Private Cars",
+                         "Commercial Cars",
                          "Aviation - PKM",
                          "Aviation-TKM",
                          "Length of Railway line open",
@@ -468,20 +474,120 @@ df %>%
                          "Newspapers",
                          "Imports - 1",
                          "Exports - 1",
-                         "industrial robots"))
+                         "industrial robots",
+                         "steel total"))
 
-plot_variable_pc("Private Cars") +
-  gghighlight(country %in% country_choices) +
-  scale_color_brewer(palette = "Dark2")
+df_mod <- df_mod %>% 
+  filter(!is.na(value)) %>% 
+  distinct(.keep_all = T) %>% 
+  pivot_wider(names_from = variable, values_from = value, values_fill = 0) %>% 
+  janitor::clean_names()
+```
 
 
-plot_variable_pc("Aviation - PKM") +
-  gghighlight(country %in% country_choices) +
-  scale_color_brewer(palette = "Dark2")
+### Correlations
 
-plot_variable_pc("Aviation-TKM")
+First we have the raw correlations - these are simply how the variables are correlated with each other.
 
-plot_variable("Number of Ships-All")
-plot_variable("Tonnage-Motorships")
+What we can see are maybe 3 clusters.
+
+You've got a nice strong correlation between energy output, and transportation like aviation and cars. In that mix are also some communication technologies like Phones and Mail.
+
+Then on the bottom section are railways, newspapers, radios, ships and telegraphs. Similar technologies but from the previous era.
+
+Then obviously literacy, schooling are correlated. Imports and exports. I think it is just a time trend that links imports and secondary education.
+
+Next I want to do a regression controlling for year, grab the residuals, and then do the same correlations.
+
+```{r}
+library(tidymodels)
+
+tidy_rec <- recipe(real_gdp ~ ., data = df_mod) %>% 
+  update_role(c(year, country), new_role = "id") %>% 
+  step_log(real_gdp, offset = 1) %>% 
+  step_normalize(all_numeric_predictors())
+  
+df_juiced <- tidy_rec %>% prep() %>% juice()
+
+library(corrr)
+
+corrs <- df_juiced %>% 
+  select(-c(year, country)) %>%
+  correlate() %>% 
+  rearrange()
+
+corrs
+
+set.seed(2021)
+
+corrs %>% 
+  network_plot(colours = c("orange", "grey80", "midnightblue"))
+
+```
+
+
+### Recipe for controlling for a time trend
+
+Splits:
+
+```{r}
+split <- initial_split(df_mod, strata = year)
+
+set.seed(2021)
+df_train <- training(split)
+df_test <- testing(split)
+df_folds <- vfold_cv(df_train)
+```
+
+
+```{r}
+lasso_rec <- recipe(real_gdp ~ ., data = df_mod) %>% 
+  update_role(c(country), new_role = "id") %>% 
+  step_log(real_gdp, offset = 1) %>% 
+  step_normalize(all_numeric_predictors(), -year)
+
+lasso_juiced <- lasso_rec %>% prep() %>% juice()
+
+lasso_spec <- linear_reg(penalty = tune(), mixture = 1) %>% 
+  set_mode("regression") %>% 
+  set_engine("glmnet") 
+
+lasso_workflow <- 
+  workflow() %>% 
+  add_recipe(lasso_rec) %>% 
+  add_model(lasso_spec) 
+
+lasso_grid <- tidyr::crossing(penalty = 10^seq(-6, -1, length.out = 20)) 
+
+lasso_tune <- 
+  tune_grid(lasso_workflow, resamples = df_folds, grid = lasso_grid) 
+
+lasso_tune %>% autoplot()
+
+lasso_best <- lasso_tune %>% select_best(., "rsq")
+
+lasso_final_wf <- finalize_workflow(lasso_workflow, lasso_best)
+
+lasso_final_fit <- last_fit(lasso_final_wf, split = split)
+```
+
+What does it look like?
+
+```{r}
+extract_fit_parsnip(lasso_final_fit) %>% tidy() %>% 
+  filter(term != "(Intercept)") %>% 
+  slice_max(abs(estimate), n = 20) %>% 
+  mutate(term = fct_reorder(term, estimate)) %>% 
+  ggplot(aes(estimate, term, fill = estimate > 0)) +
+  geom_col()
+
+lm(real_gdp ~ ., data = lasso_juiced %>% select(!country)) %>% 
+  tidy() %>% 
+  filter(term != "(Intercept)") %>% 
+  slice_max(abs(estimate), n = 20) %>% 
+  mutate(term = fct_reorder(term, estimate)) %>% 
+  ggplot(aes(estimate, term, fill = estimate > 0)) +
+  geom_col()
+
 ```
 
