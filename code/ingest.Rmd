@@ -2,7 +2,7 @@
 title: "ingest"
 author: "JJayes"
 date: "14/11/2021"
-output: html_document
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
@@ -347,8 +347,8 @@ plot_variable_pc("Televisions") +
 Need to do a GDP plot I think. Gonna try the one with the colour of the dots for time.
 
 ```{r}
-df %>% 
-  filter(vaiable %in% c(""))
+# df %>% 
+#   filter(vaiable %in% c(""))
 ```
 
 ### Plotting trade
