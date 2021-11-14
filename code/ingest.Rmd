@@ -14,6 +14,14 @@ library(here)
 
 ```
 
+## Purpose
+
+I found this dataset - Historical Cross-Country Technology Adoption (HCCTA) Dataset online. It's on the NBER website. From Diego A. Comin and Bart Hobijin.
+
+Here's the [link](https://www.nber.org/research/data/historical-cross-country-technology-adoption-hccta-dataset)
+
+The data description [here](https://data.nber.org/hccta/hcctadhelp.pdf)
+
 ### Ingest and clean
 
 ```{r}
@@ -22,14 +30,30 @@ df <- read.csv(here("data", "hcctad.txt")) %>% as_tibble() %>% janitor::clean_na
 df <- df %>% 
   mutate(across(.cols = -c(variable, year), .fns = parse_number))
 
-df %>% distinct(variable) %>% view()
+df %>% distinct(variable)
 ```
 
 ### Reshape
 
 ```{r}
 df <- df %>% 
-  pivot_longer(-c(variable, year), names_to = "country", values_to = "value")
+  pivot_longer(-c(variable, year), names_to = "country", values_to = "value") %>% 
+  mutate(country = str_to_title(str_replace_all(country, "_", " ")))
+```
+
+### Cleaning
+
+```{r}
+# df %>% 
+#   filter(country == "Germany",
+#          variable == "Length of Railway line open") %>% 
+#   ggplot(aes(year, value)) +
+#   geom_line()
+
+df <- df %>% 
+  mutate(value = case_when(
+    country == "Germany" & variable == "Length of Railway line open" & value > 4e06 ~ 0,
+    TRUE ~ value))
 ```
 
 ### Skim
@@ -49,6 +73,92 @@ df_skim %>% select(skim_variable, complete_rate) %>%
   scale_x_continuous(labels = percent_format())
 ```
 
+What kinds of variables are there?
+
+Standard with high complete rate:
+
+- year
+- pop
+- real and nom. GDP
+
+Some interesting continuous variables
+
+- Length of Railway line open
+- Freight traffic on railways
+- Passenger traffic on railways
+
+- Energy output - how is this measured?
+
+Types of technology
+
+- Phones
+
+### Modify steel
+
+```{r}
+df %>% 
+  filter(str_detect(variable, "steel"),
+         !is.na(value)) %>% 
+  mutate(country = fct_lump(country, 9)) %>% 
+  filter(!country == "Other") %>% 
+  mutate(country = fct_reorder(country, value, .desc = T, .fun = sum),
+         variable = str_to_title(str_remove(variable, "steel - "))) %>% 
+  ggplot(aes(year, value, fill = variable, group = variable)) +
+  geom_area() +
+  scale_y_continuous(labels = number_format()) +
+  facet_wrap(~ country) +
+  labs(x = NULL,
+       y = "Thousands of metric tons of crude steel",
+       fill = "Steel production method")
+```
+
+So the issue is that it's great to have all these types of steel over time. but wouldn't it be nicer just to have a sum.
+
+```{r}
+df %>% filter(str_detect(variable, "steel")) %>%
+  group_by(year, country) %>% 
+  mutate(steel_total = sum(value, na.rm = T)) %>% 
+  ungroup() %>% 
+  filter(steel_total > 0) %>% 
+  ggplot(aes(year, steel_total, colour = country)) +
+  geom_point() +
+  geom_line()
+
+df_steel <- df %>% filter(str_detect(variable, "steel")) %>%
+  group_by(year, country) %>% 
+  mutate(steel_total = sum(value, na.rm = T)) %>% 
+  ungroup() %>% 
+  select(year, country, value = steel_total) %>% 
+  mutate(variable = "steel total") %>% 
+  filter(value > 0)
+
+df <- df %>% 
+  bind_rows(df_steel)
+
+# df %>% write_rds(here("data", "df.rds"))
+```
+
+
+### Data descriptions
+
+```{r}
+# library(readxl)
+# hccta_data_description <- read_excel("data/hccta_data_description.xlsx")
+# 
+# df_data_descs <- hccta_data_description %>% 
+#   separate(key, into = c("variable", "description"), sep = ", ", extra = "merge")
+# 
+# df_data_descs <- df_data_descs %>% 
+#   mutate(description = str_to_sentence(description),
+#          variable = str_to_lower(variable),
+#          variable = str_squish(variable),
+#          variable = str_replace_all(variable, " - ", "-"))
+# 
+# df <- df %>% mutate(variable = str_to_lower(variable))
+# 
+# df %>% 
+#   anti_join(df_data_descs) %>% distinct(variable)
+```
 
 
 ### Plotting
@@ -59,7 +169,319 @@ df %>%
   ggplot(aes(year, value, colour = country)) +
   geom_point() +
   geom_line()
+```
+
+What about some of the other complete variables? Start with function to plot these.
+
+```{r}
+plot_variable <- function(var) {
+  df %>%
+    filter(variable == var,
+           value > 0) %>%
+    ggplot(aes(year, value, colour = country)) +
+    geom_point() +
+    geom_line() +
+    scale_y_continuous(labels = number_format()) +
+    labs(title = paste0("Evolution/adoption of ", var, " over time"),
+         x = NULL,
+         y = NULL)
+}
+
+plot_variable("Mail")
+```
+
+What does energy output look like?
+
+```{r}
+plot_variable("Energy output")
+```
+
+```{r}
+plot_variable("Newspapers")
+```
+
+Railways - there seems to be a data error for Germany. Imma fix it.
+
+```{r}
+plot_variable("Length of Railway line open")
+plot_variable("Freight traffic on railways-1")
+```
+
+Wow look how Japan speeds ahead in the adoptio of industrial robots over time
+```{r}
+plot_variable("industrial robots")
+```
+
+What about urbanization? Kinda strange - only two points - 1800 and 1850. Same as constraint on executive
+
+```{r}
+plot_variable("Urbanization")
+plot_variable("Constraint on Executive")
+
+```
+
+### Per capita plot
+
+Maybe I should have a function to plot per person and then plot relative to GDP per capita?
+
+```{r}
+
+plot_variable_pc <- function(var) {
+  df %>%
+    filter(variable %in% c(var, "Population")) %>%
+    pivot_wider(names_from = variable) %>%
+    rowwise() %>%
+    mutate(
+      value_pc = !!sym(var) / Population,
+      value_pc = replace_na(value_pc, 0)
+    ) %>%
+    filter(value_pc > 0) %>% 
+    ggplot(aes(year, value_pc, colour = country)) +
+    geom_point() +
+    geom_line() +
+    scale_y_continuous(labels = number_format()) +
+    labs(x = NULL,
+         title = paste0("Evolution/adoption of ", 
+                        var, " per capita over time"),
+         y = paste0(var, " per person"))
+}
+
+plot_variable_pc("Energy output")
+```
+
+```{r}
+plot_variable_pc("Newspapers")
+plot_variable_pc("Phones") +
+  scale_y_continuous(labels = percent_format())
+```
+
+### gghighlight
+
+```{r}
+library(gghighlight)
+```
+
+```{r}
+country_choices <- c("Sweden", "United Kingdom", "United States", "Spain")
+
+plot_variable_pc("Phones") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2")
+
+plot_variable_pc("Energy output") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2")
+
+plot_variable_pc("Length of Railway line open") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2")
+```
+
+What does it mean that Sweden has high literacy rates from 1850, but that primary and secondary enrolment is lower than the UK and the US??
+
+```{r}
+plot_variable("Literacy rate") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(labels = percent_format())
+
+plot_variable("Primary Enrollment") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(labels = percent_format())
+
+plot_variable("Secondary Enrollment") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_continuous(labels = percent_format())
+```
+
+What about the cars?? And transport?
+
+```{r}
+plot_variable_pc("Private Cars") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2")
 
 
+plot_variable_pc("Aviation - PKM") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2")
+
+plot_variable_pc("Aviation-TKM")
+
+plot_variable("Number of Ships-All")
+plot_variable("Tonnage-Motorships")
+
+```
+
+Could look at communication technologies?? vs industrial technologies??
+```{r}
+plot_variable_pc("Mail") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2")
+
+plot_variable_pc("Newspapers") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2")
+
+plot_variable_pc("Phones") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2")
+
+plot_variable_pc("Personal computers") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2")
+
+plot_variable_pc("Televisions") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2")
+
+```
+
+Need to do a GDP plot I think. Gonna try the one with the colour of the dots for time.
+
+```{r}
+df %>% 
+  filter(vaiable %in% c(""))
+```
+
+### Plotting trade
+
+```{r}
+plot_variable_pc("Trade - Total")
+
+df %>%
+  filter(
+    variable %in% c("Real GDP", "Imports - 1", "Exports - 1"),
+    value > 0
+  ) %>%
+  mutate(value = case_when(
+    variable != "Real GDP" ~ value / 1000,
+    TRUE ~ value * 1/100
+  )) %>% 
+  ggplot(aes(year, value, colour = country)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~variable) +
+  scale_y_continuous(labels = number_format()) +
+  labs(
+    # title = paste0("Evolution/adoption of ", var, " over time"),
+    x = NULL,
+    y = NULL
+  )
+```
+
+### Trade for sweden
+
+```{r}
+df %>% 
+  filter(country == "Sweden",
+         str_detect(variable, "trade"),
+         !str_detect(variable, "sweden"),
+         value > 0) %>% 
+  mutate(variable = str_remove_all(variable, "trade - "),
+         variable = str_to_title(variable),
+         time_chunk = year - year %% 3) %>% 
+  group_by(time_chunk, variable) %>% 
+  mutate(value = mean(value, na.rm = T)) %>% 
+  ungroup() %>%
+  ggplot(aes(time_chunk, value, colour = variable)) +
+  geom_line() +
+  geom_point() +
+  # scale_y_log10() +
+  gghighlight(str_detect(variable, c("Germany", "France", "Denmark", "Spain")))
+```
+
+### What about the metrics from AJR and other institutional measures
+
+AJR
+- Constraint on Executive
+- Protection for capital
+- Urbanization
+
+- Type of regime
+- Legislative index
+- Party legitimacy
+- Legislative effectiveness
+- Type of head of state
+- Legislative effectiveness
+
+```{r}
+df %>%
+  filter(variable %in% c("Constraint on Executive", "Protection for Capital"),
+         !is.na(value)) %>%
+  pivot_wider(names_from = variable) %>% 
+  filter(year == 1800) %>% 
+  ggplot(aes(`Constraint on Executive`, `Protection for Capital`, label = country)) +
+  geom_jitter() +
+  geom_text()
+
+df %>% 
+  filter(variable == "Legislative effectiveness") %>% filter(!is.na(value)) %>% 
+  ggplot(aes(value, fill = factor(year))) +
+  geom_density()
+  
+```
+
+
+```{r}
+df %>%
+    filter(variable %in% c("Constraint on Executive", "Protection for capital", "Population")) %>%
+    pivot_wider(names_from = variable) %>%
+    rowwise() %>%
+    mutate(across(-c(year, country, Population), .fns = ~ .x / Population)) %>% arrange(desc(year))
+```
+
+
+### What about doing t-SNE or UMAP on the different technologies and then doing a dot plot by country and year
+
+```{r}
+df
+```
+
+### What about the correlations?
+
+```{r}
+df %>% 
+  filter(variable %in% c("year",
+                         "Real GDP",
+                         "Population",
+                         "Energy output",
+                         "Literacy rate",
+                         "Primary Enrollment",
+                         "Secondary Enrollment",
+                         "Private Cars",
+                         "Aviation - PKM",
+                         "Aviation-TKM",
+                         "Length of Railway line open",
+                         "Freight traffic on railways-1",
+                         "Passenger traffic on railways-1",
+                         "Number of Ships-All",
+                         "Tonnage-Motorships",
+                         "Mail",
+                         "Phones",
+                         "Personal Computers",
+                         "Mobile Phones",
+                         "Telegraph",
+                         "Radios",
+                         "Newspapers",
+                         "Imports - 1",
+                         "Exports - 1",
+                         "industrial robots"))
+
+plot_variable_pc("Private Cars") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2")
+
+
+plot_variable_pc("Aviation - PKM") +
+  gghighlight(country %in% country_choices) +
+  scale_color_brewer(palette = "Dark2")
+
+plot_variable_pc("Aviation-TKM")
+
+plot_variable("Number of Ships-All")
+plot_variable("Tonnage-Motorships")
 ```
 
