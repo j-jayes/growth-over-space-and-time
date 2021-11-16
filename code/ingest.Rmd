@@ -12,6 +12,13 @@ library(tidyverse)
 library(scales)
 library(here)
 
+theme_set(theme_light())
+
+source(here("code", "fns", "plot_variable.R"))
+
+
+df <- read_rds(here("data", "df.rds"))
+
 ```
 
 ## Purpose
@@ -95,18 +102,23 @@ Types of technology
 
 ### Modify steel
 
+What are the different compositions of steel production by country
+
 ```{r}
 df %>% 
   filter(str_detect(variable, "steel"),
+         variable != "steel total",
          !is.na(value)) %>% 
   mutate(country = fct_lump(country, 9)) %>% 
   filter(!country == "Other") %>% 
+  pivot_wider(names_from = variable, values_fill = 0) %>% 
+  pivot_longer(-c(year, country), names_to = "variable") %>% 
   mutate(country = fct_reorder(country, value, .desc = T, .fun = sum),
          variable = str_to_title(str_remove(variable, "steel - "))) %>% 
   ggplot(aes(year, value, fill = variable, group = variable)) +
   geom_area() +
   scale_y_continuous(labels = number_format()) +
-  facet_wrap(~ country) +
+  facet_wrap(~ country, scales = "free") +
   labs(x = NULL,
        y = "Thousands of metric tons of crude steel",
        fill = "Steel production method")
@@ -136,6 +148,28 @@ df <- df %>%
   bind_rows(df_steel)
 
 # df %>% write_rds(here("data", "df.rds"))
+```
+
+What does steel total look like??
+
+```{r}
+df %>% 
+  filter(variable == "steel total") %>% 
+  ggplot(aes(year, value, colour = country)) +
+  geom_point() +
+  geom_line()
+```
+
+What about by decade
+
+```{r}
+df %>% 
+  filter(variable == "steel total") %>% 
+  mutate(decade = year - year %% 10) %>% 
+  group_by(country, decade) %>% 
+  mutate(value = sum(value, na.rm = T)) %>% 
+  ggplot(aes(decade, value, fill = country)) +
+  geom_col(position = "fill") 
 ```
 
 
@@ -178,19 +212,21 @@ df %>%
 
 What about some of the other complete variables? Start with function to plot these.
 
+Function exported to fns folder
+
 ```{r}
-plot_variable <- function(var) {
-  df %>%
-    filter(variable == var,
-           value > 0) %>%
-    ggplot(aes(year, value, colour = country)) +
-    geom_point() +
-    geom_line() +
-    scale_y_continuous(labels = number_format()) +
-    labs(title = paste0("Evolution/adoption of ", var, " over time"),
-         x = NULL,
-         y = NULL)
-}
+# plot_variable <- function(var) {
+#   df %>%
+#     filter(variable == var,
+#            value > 0) %>%
+#     ggplot(aes(year, value, colour = country)) +
+#     geom_point() +
+#     geom_line() +
+#     scale_y_continuous(labels = number_format()) +
+#     labs(title = paste0("Evolution/adoption of ", var, " over time"),
+#          x = NULL,
+#          y = NULL)
+# }
 
 plot_variable("Mail")
 ```
@@ -229,33 +265,38 @@ plot_variable("Constraint on Executive")
 
 Maybe I should have a function to plot per person and then plot relative to GDP per capita?
 
+Exported to fns folder
+
 ```{r}
 
-plot_variable_pc <- function(var) {
-  df %>%
-    filter(variable %in% c(var, "Population")) %>%
-    pivot_wider(names_from = variable) %>%
-    rowwise() %>%
-    mutate(
-      value_pc = !!sym(var) / Population,
-      value_pc = replace_na(value_pc, 0)
-    ) %>%
-    filter(value_pc > 0) %>% 
-    ggplot(aes(year, value_pc, colour = country)) +
-    geom_point() +
-    geom_line() +
-    scale_y_continuous(labels = number_format()) +
-    labs(x = NULL,
-         title = paste0("Evolution/adoption of ", 
-                        var, " per capita over time"),
-         y = paste0(var, " per person"))
-}
+# plot_variable_pc <- function(var) {
+#   df %>%
+#     filter(variable %in% c(var, "Population")) %>%
+#     pivot_wider(names_from = variable) %>%
+#     rowwise() %>%
+#     mutate(
+#       value_pc = !!sym(var) / Population,
+#       value_pc = replace_na(value_pc, 0)
+#     ) %>%
+#     filter(value_pc > 0) %>% 
+#     ggplot(aes(year, value_pc, colour = country)) +
+#     geom_point() +
+#     geom_line() +
+#     scale_y_continuous(labels = number_format()) +
+#     labs(x = NULL,
+#          title = paste0("Evolution/adoption of ", 
+#                         var, " per capita over time"),
+#          y = paste0(var, " per person"))
+# }
 
 plot_variable_pc("Energy output")
 ```
 
 ```{r}
 plot_variable_pc("Newspapers")
+plot_variable("Newspapers")
+
+
 plot_variable_pc("Phones") +
   scale_y_continuous(labels = percent_format())
 ```
@@ -502,7 +543,7 @@ Next I want to do a regression controlling for year, grab the residuals, and the
 ```{r}
 library(tidymodels)
 
-tidy_rec <- recipe(real_gdp ~ ., data = df_mod) %>% 
+tidy_rec <- recipe(real_gdp ~ ., data = df_mod %>% filter(country == "Sweden")) %>% 
   update_role(c(year, country), new_role = "id") %>% 
   step_log(real_gdp, offset = 1) %>% 
   step_normalize(all_numeric_predictors())
@@ -525,6 +566,16 @@ corrs %>%
 
 ```
 
+Could be interesting to do a correlation plot for every decade, and see how it develops over time.
+
+
+```{r}
+df_juiced %>%
+  pivot_longer(-c(year, country)) %>% 
+  ggplot(aes(year, value, colour = name)) +
+  geom_point() +
+  geom_line()
+```
 
 ### Recipe for controlling for a time trend
 
@@ -589,5 +640,24 @@ lm(real_gdp ~ ., data = lasso_juiced %>% select(!country)) %>%
   ggplot(aes(estimate, term, fill = estimate > 0)) +
   geom_col()
 
+```
+
+### Energy adoption over time
+
+```{r}
+df %>% 
+  filter(between(year, 1900, 1950),
+         variable %in% c("Energy output", "Population")) %>% 
+  pivot_wider(names_from = variable) %>% 
+  rowwise() %>% 
+  mutate(value_pc = `Energy output` / Population,
+         value_pc = replace_na(value_pc, 0)) %>% 
+  ggplot(aes(year, value_pc, colour = country)) +
+  geom_point() + 
+  geom_line() +
+  gghighlight::gghighlight(country == "Sweden") +
+  labs(x = NULL,
+       y = "Energy output in 10mW per capita",
+       title = "Sweden has a relatively high energy output per capita")
 ```
 
