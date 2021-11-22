@@ -12,12 +12,19 @@ library(tidyverse)
 library(scales)
 library(here)
 
-theme_set(theme_light())
-
 source(here("code", "fns", "plot_variable.R"))
+source(here("code", "fns", "plot_variable_pc.R"))
 
 
 df <- read_rds(here("data", "df.rds"))
+
+theme_set(theme_light())
+theme_update(
+  legend.position = "bottom",
+  text = element_text(size = 14),
+  legend.text = element_text(size = 14),
+  plot.caption = element_text(size = 12)
+)
 
 ```
 
@@ -292,13 +299,47 @@ Exported to fns folder
 plot_variable_pc("Energy output")
 ```
 
+### For italy
+
 ```{r}
 plot_variable_pc("Newspapers")
 plot_variable("Newspapers")
 
+jpeg(filename = here("images", "italy_phones.jpeg"),
+     height = 5,
+     width = 8,
+     units = "in",
+     res = 1000)
 
 plot_variable_pc("Phones") +
-  scale_y_continuous(labels = percent_format())
+  scale_y_continuous(labels = number_format()) +
+  gghighlight::gghighlight(country == "Italy")
+
+dev.off()
+
+jpeg(filename = here("images", "italy_mobile_phones.jpeg"),
+     height = 5,
+     width = 8,
+     units = "in",
+     res = 1000)
+
+plot_variable_pc("Mobile Phones") +
+  scale_y_continuous(labels = number_format()) +
+  gghighlight::gghighlight(country == "Italy")
+
+dev.off()
+
+jpeg(filename = here("images", "italy_personal_computers.jpeg"),
+     height = 5,
+     width = 8,
+     units = "in",
+     res = 1000)
+
+plot_variable_pc("Personal computers") +
+  scale_y_continuous(labels = number_format()) +
+  gghighlight::gghighlight(country == "Italy")
+
+dev.off()
 ```
 
 ### gghighlight
