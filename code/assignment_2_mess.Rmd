@@ -1,0 +1,114 @@
+---
+title: "assignment_2"
+author: "JJayes"
+date: "26/11/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(scales)
+library(rvest)
+
+library(here)
+
+```
+
+
+## Agricultural productivity
+
+```{r}
+library(readxl)
+
+df <- read_excel(here("data", "Assignment_2", "agric_tfp.xlsx")) %>% janitor::clean_names()
+
+df <- df %>% 
+  pivot_longer(-c(order, fao, iso3, country_territory, region, sub_region, inc_i), names_to = "year") %>% 
+  mutate(year = parse_number(year))
+
+```
+
+
+
+```{r}
+df %>%
+  ggplot(aes(year, value, colour = country_territory)) +
+  geom_point() +
+  geom_line() +
+  theme(legend.position = "none") +
+  gghighlight::gghighlight(region == "SSA")
+```
+
+### Change base year
+
+```{r}
+df %>% 
+  filter(country_territory == "Ghana") %>% 
+  ggplot(aes(year, value)) +
+  geom_line() +
+  geom_point()
+```
+
+
+
+## Shares of GDP
+
+```{r}
+df <- read_excel(here("data", "Assignment_2", "sectoral_shares_of_gdp.xlsx")) %>% janitor::clean_names()
+
+df <- df %>% 
+  pivot_longer(-c(country_name, country_code, indicator_name, indicator_code), names_to = "year") %>% 
+  mutate(year = parse_number(year))
+
+```
+
+```{r}
+df %>% 
+  filter(country_name == "South Africa") %>% 
+  ggplot(aes(year, value, fill = indicator_name)) +
+  geom_area(position = "fill")
+```
+
+### Creating shre of agric var
+
+```{r}
+df_agric <- df %>% 
+  select(country_name, indicator_name, year, value) %>% 
+  pivot_wider(names_from = indicator_name) %>% 
+  janitor::clean_names() %>% 
+  rowwise() %>% 
+  mutate(sum_shares = sum(agriculture_forestry_and_fishing_value_added_percent_of_gdp, 
+                          manufacturing_value_added_percent_of_gdp, 
+                          services_value_added_percent_of_gdp,
+                          industry_including_construction_value_added_percent_of_gdp,
+                          na.rm = T)) %>% 
+  mutate(share_agric = agriculture_forestry_and_fishing_value_added_percent_of_gdp / sum_shares*100) %>% 
+  select(country_name, year, share_agric)
+```
+
+```{r}
+df <- df %>% 
+  inner_join(df_agric, by = c("country_name", "year"))
+```
+
+
+```{r}
+df %>% 
+  filter(year == 1990,
+         !is.na(value)) %>% 
+  mutate(country_name = fct_reorder(country_name, share_agric)) %>% 
+  ggplot(aes(value, country_name, fill = indicator_name)) +
+  geom_col(position = "fill")
+```
+
+
+## Gapminder style chart with GDP per capita and 
+
+```{r}
+df <- read_excel(here("data", "Assignment_2", "gdp_per_capita.xlsx")) %>% janitor::clean_names()
+
+
+```
+

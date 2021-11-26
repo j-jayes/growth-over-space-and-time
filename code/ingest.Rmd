@@ -342,6 +342,34 @@ plot_variable_pc("Personal computers") +
 dev.off()
 ```
 
+### Facet plot
+
+
+```{r}
+jpeg(filename = here("images", "italy_phones_mobiles_computers.jpeg"),
+     height = 5,
+     width = 8,
+     units = "in",
+     res = 1000)
+
+df %>% 
+  filter(variable %in% c("Phones", "Mobile Phones", "Personal computers", "Population")) %>% 
+  pivot_wider(names_from = variable) %>% 
+  mutate(across(-c(year, country, Population), ~ .x / Population)) %>% 
+  pivot_longer(-c(year, country, Population)) %>% 
+  filter(!is.na(value)) %>% 
+  ggplot(aes(year, value, colour = country)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~ name, scales = "free_x") +
+  gghighlight::gghighlight(country == "Italy", calculate_per_facet = TRUE) +
+  labs(x = NULL,
+       title = "Evolution of technology adoption in Italy",
+       y = "Number of products per person")
+
+dev.off()
+```
+
 ### gghighlight
 
 ```{r}
