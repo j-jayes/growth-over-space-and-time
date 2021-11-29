@@ -51,6 +51,38 @@ df %>%
   geom_point()
 ```
 
+```{r}
+df_1961 <- df %>% 
+  filter(year == 1961) %>% 
+  select(iso3, value_1961 = value)
+
+df <- df %>% 
+  left_join(df_1961, by = c("iso3"))
+
+df <- df %>% 
+  mutate(value_base_1961 = value / value_1961 * 100)
+```
+
+
+Test
+
+```{r}
+df %>% 
+  filter(country_territory == "Ghana") %>% 
+  ggplot(aes(year, value_base_1961)) +
+  geom_line() +
+  geom_point()
+```
+
+```{r}
+df %>% 
+  # filter(country_territory == "Ghana") %>% 
+  ggplot(aes(year, value_base_1961, colour = country_territory)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ region) +
+  theme(legend.position = "none")
+```
 
 
 ## Shares of GDP
@@ -103,12 +135,45 @@ df %>%
   geom_col(position = "fill")
 ```
 
+### Shares of employment
+
+```{r}
+df <- read_excel(here("data", "Assignment_2", "sectoral_shares_of_employment.xlsx")) %>% janitor::clean_names()
+
+df <- df %>% 
+  pivot_longer(-c(country_name, country_code, indicator_name, indicator_code), names_to = "year") %>% 
+  mutate(year = parse_number(year))
+
+```
+
+```{r}
+df %>% 
+  filter(country_name == "India") %>% 
+  ggplot(aes(year, value, fill = indicator_name)) +
+  geom_col()
+```
+
+
 
 ## Gapminder style chart with GDP per capita and 
 
 ```{r}
 df <- read_excel(here("data", "Assignment_2", "gdp_per_capita.xlsx")) %>% janitor::clean_names()
 
-
+df <- df %>% 
+  pivot_longer(-c(country_name, country_code, indicator_name, indicator_code), names_to = "year") %>% 
+  mutate(year = parse_number(year))
 ```
+
+
+
+## Another fun one
+
+Could do a one with share of GDP in agriculture and share of employment in agricultuer and share agric productivity.
+
+
+
+
+
+
 
