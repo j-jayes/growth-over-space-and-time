@@ -125,6 +125,15 @@ df <- df %>%
   inner_join(df_agric, by = c("country_name", "year"))
 ```
 
+### Need a list of countries with region 
+
+```{r}
+library(countrycode)
+
+df <- df %>% 
+  mutate(continent = countrycode(country_code, "iso3c", "continent"))
+```
+
 
 ```{r}
 df %>% 
@@ -133,6 +142,16 @@ df %>%
   mutate(country_name = fct_reorder(country_name, share_agric)) %>% 
   ggplot(aes(value, country_name, fill = indicator_name)) +
   geom_col(position = "fill")
+
+df %>% 
+  filter(year == 1990,
+         !is.na(value),
+         continent %in% c("Americas", "Africa", "Asia")) %>% 
+  mutate(country_name = fct_reorder(country_name, share_agric)) %>% 
+  ggplot(aes(value, country_name, fill = indicator_name)) +
+  geom_col(position = "fill") +
+  facet_wrap(~ continent, scales = "free_y", nrow = 3)
+
 ```
 
 ### Shares of employment
@@ -170,7 +189,6 @@ df <- df %>%
 ## Another fun one
 
 Could do a one with share of GDP in agriculture and share of employment in agricultuer and share agric productivity.
-
 
 
 
