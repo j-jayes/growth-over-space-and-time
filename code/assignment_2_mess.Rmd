@@ -11,16 +11,16 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(scales)
 library(rvest)
-
+library(readxl)
 library(here)
 
+theme_set(theme_light())
 ```
 
 
 ## Agricultural productivity
 
 ```{r}
-library(readxl)
 
 df <- read_excel(here("data", "Assignment_2", "agric_tfp.xlsx")) %>% janitor::clean_names()
 
@@ -97,10 +97,10 @@ df <- df %>%
 ```
 
 ```{r}
-df %>% 
-  filter(country_name == "South Africa") %>% 
-  ggplot(aes(year, value, fill = indicator_name)) +
-  geom_area(position = "fill")
+# df %>% 
+#   filter(country_name == "South Africa") %>% 
+#   ggplot(aes(year, value, fill = indicator_name)) +
+#   geom_area(position = "fill")
 ```
 
 ### Creating shre of agric var
@@ -143,15 +143,48 @@ df %>%
   ggplot(aes(value, country_name, fill = indicator_name)) +
   geom_col(position = "fill")
 
-df %>% 
-  filter(year == 1990,
-         !is.na(value),
-         continent %in% c("Americas", "Africa", "Asia")) %>% 
-  mutate(country_name = fct_reorder(country_name, share_agric)) %>% 
+countries <- df %>% 
+  filter(
+    year %in% c(1990, 2020),
+    continent %in% c("Americas", "Africa", "Asia"),
+    indicator_name == "Agriculture, forestry, and fishing, value added (% of GDP)"
+  ) %>%
+  select(country_name, year, value, continent) %>% 
+  pivot_wider(names_from = year, values_from = value) %>% 
+  filter(!is.na(`1990`),
+         !is.na(`2020`)) %>% 
+  select(continent, country_name) %>% 
+  distinct() %>% 
+  group_by(continent) %>% 
+  sample_n(size = 15) %>% 
+  ungroup() %>% 
+  select(country_name) %>% pull()
+
+jpeg(filename = here("images", "assignment_2", "gdp_comp_199_2020.jpeg"),
+     height = 8,
+     width = 8,
+     units = "in",
+     res = 1000)
+
+df %>%
+  filter(
+    year %in% c(1990, 2020),
+    # continent %in% c("Americas", "Africa", "Asia"),
+    country_name %in% countries
+  ) %>%
+  mutate(indicator_name = str_remove(indicator_name, ", value added \\(\\% of GDP\\)")) %>% 
+  mutate(country_name = fct_reorder(country_name, share_agric)) %>%
   ggplot(aes(value, country_name, fill = indicator_name)) +
   geom_col(position = "fill") +
-  facet_wrap(~ continent, scales = "free_y", nrow = 3)
+  facet_grid(continent ~ year, scales = "free") +
+  scale_fill_brewer(palette = "Spectral", direction = -1) +
+  scale_x_continuous(labels = percent_format()) +
+  labs(x = "Share of GDP (value added) from sector",
+       y = NULL,
+       fill = NULL) +
+  theme(legend.position = "bottom")
 
+dev.off()
 ```
 
 ### Shares of employment
@@ -163,15 +196,80 @@ df <- df %>%
   pivot_longer(-c(country_name, country_code, indicator_name, indicator_code), names_to = "year") %>% 
   mutate(year = parse_number(year))
 
+df <- df %>% 
+  mutate(continent = countrycode(country_code, "iso3c", "continent"))
+
+df_agric <- df %>% 
+  select(country_name, indicator_name, year, value) %>% 
+  pivot_wider(names_from = indicator_name) %>% 
+  janitor::clean_names() %>%
+  rowwise() %>% 
+  mutate(sum_shares = sum(employment_in_agriculture_percent_of_total_employment_modeled_ilo_estimate,
+                          employment_in_industry_percent_of_total_employment_modeled_ilo_estimate,
+                          employment_in_services_percent_of_total_employment_modeled_ilo_estimate,
+                          na.rm = T)) %>% 
+  mutate(share_agric = employment_in_agriculture_percent_of_total_employment_modeled_ilo_estimate / sum_shares*100) %>% 
+  select(country_name, year, share_agric)
+
+df <- df %>% 
+  inner_join(df_agric, by = c("country_name", "year"))
+
 ```
 
 ```{r}
-df %>% 
-  filter(country_name == "India") %>% 
-  ggplot(aes(year, value, fill = indicator_name)) +
-  geom_col()
+# df %>% 
+#   filter(country_name == "India") %>% 
+#   ggplot(aes(year, value, fill = indicator_name)) +
+#   geom_col()
 ```
 
+```{r}
+
+countries <- df %>% 
+  filter(continent %in% c("Americas", "Africa", "Asia"),
+          year %in% c(1991, 2018),
+         !is.na(value)) %>% 
+  select(continent, country_name) %>% 
+  distinct() %>% 
+  group_by(continent) %>% 
+  sample_n(size = 15) %>% 
+  ungroup() %>% 
+  select(country_name) %>% pull()
+
+jpeg(filename = here("images", "assignment_2", "employment_1991_2018.jpeg"),
+     height = 8,
+     width = 8,
+     units = "in",
+     res = 1000)
+
+df %>%
+  filter(
+    year %in% c(1991, 2018),
+    continent %in% c("Americas", "Africa", "Asia")
+  ) %>%
+  filter(!is.na(value),
+         country_name %in% countries) %>%
+  mutate(country_name = fct_reorder(country_name, share_agric),
+         indicator_name = str_remove(indicator_name, "\\(.*")) %>%
+  ggplot(aes(value, country_name, fill = indicator_name)) +
+  geom_col(position = "fill") +
+  scale_fill_brewer(palette = "Dark2") +
+  facet_grid(continent ~ year, scales = "free") +
+  scale_x_continuous(labels = percent_format()) +
+  theme(legend.position = "bottom") +
+  labs(x = NULL,
+       y = NULL,
+       fill = NULL)
+
+dev.off()
+```
+
+```{r}
+df_agric_to_join <- df %>% 
+  mutate(value = share_agric) %>% 
+  filter(str_detect(indicator_name, "agricul")) %>% 
+    select(-continent, -share_agric)
+```
 
 
 ## Gapminder style chart with GDP per capita and 
@@ -184,14 +282,101 @@ df <- df %>%
   mutate(year = parse_number(year))
 ```
 
+### population to join
+
+```{r}
+# df <- read_excel(here("data", "Assignment_2", "population.xlsx")) %>% janitor::clean_names()
+# 
+# df <- df %>% 
+#   pivot_longer(-c(country_name, country_code, indicator_name, indicator_code), names_to = "year") %>% 
+#   mutate(year = parse_number(year))
+```
+
+
+```{r}
+df <- df %>% 
+  bind_rows(df_agric_to_join) %>% 
+  filter(year == 2015) %>% 
+  select(country_name, indicator_name, value) %>% 
+  mutate(continent = countrycode(country_name, "country.name", "continent")) %>% 
+  filter(!is.na(continent)) %>% 
+  pivot_wider(names_from = indicator_name, values_from = value) %>% 
+  janitor::clean_names()
+
+
+jpeg(filename = here("images", "assignment_2", "agric_gdp_2015.jpeg"),
+     height = 5,
+     width = 8,
+     units = "in",
+     res = 1000)
+
+df %>% 
+  ggplot(aes(employment_in_agriculture_percent_of_total_employment_modeled_ilo_estimate, 
+             gdp_per_capita_current_us)) +
+  geom_smooth(method = "lm", se = F) +
+  geom_point(aes(colour = continent, shape = continent)) +
+  scale_y_log10(labels = dollar_format()) +
+  scale_x_continuous(labels = percent_format(scale = 1)) +
+  scale_color_brewer(palette = "Dark2") +
+  labs(x = "Percentage of workforce employed in Agriculture",
+       y = "GDP per capita (2011 US$)(log scale)",
+       colour = NULL,
+       shape = NULL)
+
+dev.off()
+```
 
 
 ## Another fun one
 
-Could do a one with share of GDP in agriculture and share of employment in agricultuer and share agric productivity.
+Could do a one with share of GDP in agriculture and share of employment in agriculture and share agric productivity.
+
+
+```{r}
 
 
 
+```
 
 
+### Urbanization
+
+```{r}
+
+df <- read_excel(here("data", "Assignment_2", "urbanization.xlsx")) %>% janitor::clean_names()
+
+df <- df %>% 
+  pivot_longer(-c(country_name, country_code, indicator_name, indicator_code), names_to = "year") %>% 
+  mutate(year = parse_number(year))
+
+df <- df %>% 
+  mutate(continent = countrycode(country_code, "iso3c", "continent"))
+
+```
+
+
+```{r}
+jpeg(filename = here("images", "assignment_2", "urbanization.jpeg"),
+     height = 5,
+     width = 8,
+     units = "in",
+     res = 1000)
+
+df %>% 
+  filter(value != 100,
+         continent %in% c("Americas", "Africa", "Asia")) %>% 
+  ggplot(aes(year, value, colour = country_name)) +
+  # geom_point() +
+  geom_line(size = 1.2) +
+  facet_wrap(~ continent) +
+  gghighlight::gghighlight(country_name %in% 
+                             c("South Africa", "Brazil", "India", "China"), 
+                           calculate_per_facet = T) +
+  scale_x_continuous() +
+  scale_y_continuous(labels = percent_format(scale = 1)) +
+  labs(x = NULL,
+       y = "Share of population living in urban area")
+
+dev.off()
+```
 
