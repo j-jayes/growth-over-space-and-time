@@ -326,6 +326,40 @@ df %>%
 dev.off()
 ```
 
+### Evolution over time
+
+```{r}
+df_agric_to_join %>% 
+  filter(country_name %in% c("Vietnam", "Ethiopia")) %>% 
+  ggplot(aes(year, value, colour = country_name)) +
+  geom_line() +
+  geom_point()
+
+jpeg(filename = here("images", "assignment_2", "agric_vs_gdp__pc.jpeg"),
+     height = 5,
+     width = 8,
+     units = "in",
+     res = 1000)
+
+df_agric_to_join %>% 
+  inner_join(df %>% 
+  filter(country_name %in% c("Vietnam", "Ethiopia")) %>% 
+  select(year, country_name, gdp_pc = value), by = c("year", "country_name")) %>% 
+  ggplot(aes(value, gdp_pc, colour = country_name, label = year)) +
+  geom_line() +
+  geom_point(size = 2) +
+  geom_text(check_overlap = T, show.legend = F, hjust = 1.5) +
+  scale_x_continuous(labels = percent_format(scale = 1)) +
+  scale_y_continuous(labels = dollar_format()) +
+  scale_color_brewer(palette = "Dark2") +
+  expand_limits(x = 35) +
+  labs(x = "Share of labour force in agriculture",
+       y = "GDP per capita (1990$)",
+       colour = "Country")
+
+dev.off()
+```
+
 
 ## Another fun one
 
